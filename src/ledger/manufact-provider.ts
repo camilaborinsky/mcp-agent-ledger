@@ -3,6 +3,8 @@ import type {
   GetBalanceResult,
   GetExpensesResult,
   LedgerFilters,
+  TrackExpenseInput,
+  TrackExpenseResult,
 } from "./types.js";
 
 function ensureManufactConfigured(): void {
@@ -34,6 +36,16 @@ export class ManufactLedgerProvider implements LedgerProvider {
     throw new LedgerError(
       "NOT_IMPLEMENTED",
       "Manufact balance integration is scaffolded but not implemented yet."
+    );
+  }
+
+  async trackExpense(_input: TrackExpenseInput): Promise<TrackExpenseResult> {
+    ensureManufactConfigured();
+
+    // TODO: Map Manufact create-expense payload into TrackExpenseResult.
+    throw new LedgerError(
+      "NOT_IMPLEMENTED",
+      "Manufact expense tracking integration is scaffolded but not implemented yet."
     );
   }
 }

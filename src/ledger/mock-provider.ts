@@ -6,6 +6,8 @@ import type {
   GetBalanceResult,
   GetExpensesResult,
   LedgerFilters,
+  TrackExpenseInput,
+  TrackExpenseResult,
 } from "./types.js";
 import { LedgerError, type LedgerProvider } from "./provider.js";
 
@@ -21,7 +23,7 @@ const STARTING_BALANCE_BY_AGENT: Record<string, number> = {
   "agent-cipher": 220_000,
 };
 
-const MOCK_EXPENSES: Expense[] = [
+const SEED_MOCK_EXPENSES: Expense[] = [
   {
     id: "exp-001",
     agentId: "agent-atlas",
@@ -124,6 +126,11 @@ const MOCK_EXPENSES: Expense[] = [
   },
 ];
 
+const AGENT_BY_ID: Map<string, (typeof AGENTS)[number]> = new Map(
+  AGENTS.map((agent) => [agent.id, agent] as const)
+);
+let mockExpenses: Expense[] = [...SEED_MOCK_EXPENSES];
+
 function toStartOfDay(dateIso: string): Date {
   return new Date(`${dateIso}T00:00:00.000Z`);
 }
@@ -214,17 +221,81 @@ export class MockLedgerProvider implements LedgerProvider {
     };
   }
 
+  async trackExpense(input: TrackExpenseInput): Promise<TrackExpenseResult> {
+    if (input.currency !== "USD") {
+      throw new LedgerError(
+        "UNSUPPORTED_CURRENCY",
+        `Mock provider supports USD only. Received currency: ${input.currency}`
+      );
+    }
+
+    const agent = AGENT_BY_ID.get(input.agentId);
+    if (!agent) {
+      throw new LedgerError(
+        "INVALID_AGENT",
+        `Unknown agent id: ${input.agentId}.`
+      );
+    }
+
+    const normalizedAmount = Math.trunc(input.amountMinor);
+    if (normalizedAmount <= 0) {
+      throw new LedgerError(
+        "INVALID_AMOUNT",
+        "amountMinor must be a positive integer."
+      );
+    }
+
+    const occurredAtMs = Date.parse(input.occurredAt);
+    if (Number.isNaN(occurredAtMs)) {
+      throw new LedgerError(
+        "INVALID_DATE",
+        `Invalid occurredAt timestamp: ${input.occurredAt}. Expected ISO-8601 date-time.`
+      );
+    }
+
+    const expense: Expense = {
+      id: nextExpenseId(),
+      agentId: agent.id,
+      agentName: agent.name,
+      category: input.category,
+      vendor: input.vendor,
+      description: input.description,
+      amountMinor: normalizedAmount,
+      occurredAt: new Date(occurredAtMs).toISOString(),
+    };
+
+    mockExpenses = [...mockExpenses, expense];
+
+    return {
+      currency: input.currency,
+      expense,
+    };
+  }
+
   private getFilteredExpenses(filters: LedgerFilters): Expense[] {
     const fromTime = toStartOfDay(filters.from).getTime();
     const toTime = toEndOfDay(filters.to).getTime();
 
-    return MOCK_EXPENSES.filter((item) => {
+    return mockExpenses.filter((item) => {
       const itemTime = new Date(item.occurredAt).getTime();
       const matchesDate = itemTime >= fromTime && itemTime <= toTime;
       const matchesAgent = !filters.agentId || item.agentId === filters.agentId;
       return matchesDate && matchesAgent;
     });
   }
+}
+
+function nextExpenseId(): string {
+  const nextOrdinal =
+    mockExpenses.reduce((max, item) => {
+      const matched = /^exp-(\d+)$/.exec(item.id);
+      if (!matched) {
+        return max;
+      }
+      return Math.max(max, Number.parseInt(matched[1], 10));
+    }, 0) + 1;
+
+  return `exp-${String(nextOrdinal).padStart(3, "0")}`;
 }
 
 function summarizeByAgent(expenses: Expense[]): ExpenseByAgent[] {

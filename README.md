@@ -1,6 +1,6 @@
 # MCP Agent Ledger
 
-MCP server built with `mcp-use` that exposes two mocked ledger tools and a ChatGPT widget dashboard for agent expenses and balances.
+MCP server built with `mcp-use` that exposes ledger tools and a ChatGPT widget dashboard for agent expenses and balances.
 
 ## Tools
 
@@ -36,7 +36,22 @@ Output schema:
 - `totals.spentMinor: number`
 - `totals.remainingMinor: number`
 
-Both tools render the same widget: `agent-ledger-dashboard`.
+### `trackExpense`
+Input schema:
+- `agentId: string`
+- `category: string`
+- `vendor: string`
+- `description: string`
+- `amountMinor: number` (positive integer, minor units)
+- `currency?: string` (defaults to `USD`)
+- `occurredAt?: string` (ISO-8601 timestamp, defaults to now)
+
+Output schema:
+- `currency: string`
+- `expense: Expense`
+
+`getExpenses` and `getBalance` both render the widget `agent-ledger-dashboard`.  
+`trackExpense` is a write tool and returns JSON only.
 
 ## Provider Selection
 
@@ -64,6 +79,10 @@ Open [http://localhost:3000/inspector](http://localhost:3000/inspector) and run:
 
 ```json
 {"name":"getBalance","arguments":{"agentId":"agent-atlas"}}
+```
+
+```json
+{"name":"trackExpense","arguments":{"agentId":"agent-atlas","category":"software","vendor":"OpenAI","description":"Batch inference run","amountMinor":1250}}
 ```
 
 ## Build

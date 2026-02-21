@@ -71,3 +71,18 @@ export type GetBalanceResult = {
   balances: AgentBalance[];
   totals: BalanceTotals;
 };
+
+export type TrackExpenseInput = {
+  agentId: string;
+  category: string;
+  vendor: string;
+  description: string;
+  amountMinor: number;
+  currency: string;
+  occurredAt: string;
+};
+
+export type TrackExpenseResult = {
+  currency: string;
+  expense: Expense;
+};

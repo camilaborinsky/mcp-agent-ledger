@@ -3,6 +3,8 @@ import type {
   GetExpensesResult,
   LedgerFilters,
   LedgerProviderName,
+  TrackExpenseInput,
+  TrackExpenseResult,
 } from "./types.js";
 
 export class LedgerError extends Error {
@@ -19,4 +21,5 @@ export interface LedgerProvider {
   name: LedgerProviderName;
   getExpenses(filters: LedgerFilters): Promise<GetExpensesResult>;
   getBalance(filters: LedgerFilters): Promise<GetBalanceResult>;
+  trackExpense(input: TrackExpenseInput): Promise<TrackExpenseResult>;
 }

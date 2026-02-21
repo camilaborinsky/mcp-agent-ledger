@@ -3,6 +3,8 @@ import type {
   GetBalanceResult,
   GetExpensesResult,
   LedgerFilters,
+  TrackExpenseInput,
+  TrackExpenseResult,
 } from "./types.js";
 
 function ensurePuzzleConfigured(): void {
@@ -34,6 +36,16 @@ export class PuzzleLedgerProvider implements LedgerProvider {
     throw new LedgerError(
       "NOT_IMPLEMENTED",
       "Puzzle balance integration is scaffolded but not implemented yet."
+    );
+  }
+
+  async trackExpense(_input: TrackExpenseInput): Promise<TrackExpenseResult> {
+    ensurePuzzleConfigured();
+
+    // TODO: Map Puzzle create-expense payload into TrackExpenseResult.
+    throw new LedgerError(
+      "NOT_IMPLEMENTED",
+      "Puzzle expense tracking integration is scaffolded but not implemented yet."
     );
   }
 }

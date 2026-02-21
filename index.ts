@@ -8,6 +8,7 @@ import type {
   GetExpensesResult,
   LedgerFilters,
   LedgerFiltersInput,
+  TrackExpenseInput,
 } from "./src/ledger/types.js";
 
 const server = new MCPServer({
@@ -108,6 +109,35 @@ const getBalanceOutputSchema = z
   })
   .passthrough();
 
+const trackExpenseInputSchema = z.object({
+  agentId: z.string().describe("Agent id that incurred the expense."),
+  category: z
+    .string()
+    .describe("Expense category, for example software or infrastructure."),
+  vendor: z.string().describe("Vendor or payee name."),
+  description: z.string().describe("Human-readable expense description."),
+  amountMinor: z
+    .number()
+    .int()
+    .positive()
+    .describe("Expense amount in minor units (for USD, cents)."),
+  currency: z
+    .string()
+    .optional()
+    .describe("Currency code. Defaults to USD."),
+  occurredAt: z
+    .string()
+    .optional()
+    .describe("Expense timestamp in ISO-8601 format. Defaults to now."),
+});
+
+const trackExpenseOutputSchema = z
+  .object({
+    currency: z.string(),
+    expense: expenseSchema,
+  })
+  .passthrough();
+
 server.tool(
   {
     name: "getExpenses",
@@ -167,6 +197,51 @@ server.tool(
     } catch (err) {
       logToolResult({
         toolName: "getExpenses",
+        providerName,
+        filters: filtersForLog,
+        durationMs: Date.now() - startedAt,
+        status: "error",
+      });
+      return toErrorResponse(err);
+    }
+  }
+);
+
+server.tool(
+  {
+    name: "trackExpense",
+    description: "Record an expense entry for an agent.",
+    schema: trackExpenseInputSchema,
+    outputSchema: trackExpenseOutputSchema,
+  },
+  async (input) => {
+    const startedAt = Date.now();
+    let filtersForLog = safeNormalizeFilters({
+      agentId: input.agentId,
+      currency: input.currency,
+    });
+    let providerName = process.env.LEDGER_PROVIDER?.toLowerCase().trim() || "mock";
+
+    try {
+      const normalizedInput = normalizeTrackExpenseInput(input);
+      const provider = getLedgerProvider();
+      providerName = provider.name;
+
+      const result = await provider.trackExpense(normalizedInput);
+      filtersForLog = buildTrackExpenseLogFilters(normalizedInput);
+
+      logToolResult({
+        toolName: "trackExpense",
+        providerName,
+        filters: filtersForLog,
+        durationMs: Date.now() - startedAt,
+        status: "ok",
+      });
+
+      return object(result);
+    } catch (err) {
+      logToolResult({
+        toolName: "trackExpense",
         providerName,
         filters: filtersForLog,
         durationMs: Date.now() - startedAt,
@@ -313,6 +388,77 @@ function safeNormalizeFilters(input: LedgerFiltersInput): LedgerFilters {
       agentId: input.agentId?.trim() || undefined,
     };
   }
+}
+
+function normalizeTrackExpenseInput(input: {
+  agentId: string;
+  category: string;
+  vendor: string;
+  description: string;
+  amountMinor: number;
+  currency?: string;
+  occurredAt?: string;
+}): TrackExpenseInput {
+  const agentId = input.agentId.trim();
+  if (!agentId) {
+    throw new LedgerError("INVALID_AGENT", "agentId is required.");
+  }
+
+  const category = input.category.trim();
+  if (!category) {
+    throw new LedgerError("INVALID_CATEGORY", "category is required.");
+  }
+
+  const vendor = input.vendor.trim();
+  if (!vendor) {
+    throw new LedgerError("INVALID_VENDOR", "vendor is required.");
+  }
+
+  const description = input.description.trim();
+  if (!description) {
+    throw new LedgerError("INVALID_DESCRIPTION", "description is required.");
+  }
+
+  const occurredAt = normalizeOccurredAt(input.occurredAt);
+  const currency = input.currency?.trim().toUpperCase() || DEFAULT_CURRENCY;
+
+  return {
+    agentId,
+    category,
+    vendor,
+    description,
+    amountMinor: input.amountMinor,
+    currency,
+    occurredAt,
+  };
+}
+
+function normalizeOccurredAt(occurredAt?: string): string {
+  if (!occurredAt) {
+    return new Date().toISOString();
+  }
+
+  const normalized = occurredAt.trim();
+  const timestamp = Date.parse(normalized);
+
+  if (Number.isNaN(timestamp)) {
+    throw new LedgerError(
+      "INVALID_DATE",
+      `Invalid occurredAt date format: ${occurredAt}. Expected ISO-8601 date-time.`
+    );
+  }
+
+  return new Date(timestamp).toISOString();
+}
+
+function buildTrackExpenseLogFilters(input: TrackExpenseInput): LedgerFilters {
+  const day = input.occurredAt.slice(0, 10);
+  return {
+    agentId: input.agentId,
+    from: day,
+    to: day,
+    currency: input.currency,
+  };
 }
 
 function resolveDateRange(
