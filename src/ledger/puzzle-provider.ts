@@ -204,10 +204,24 @@ export class PuzzleLedgerProvider implements LedgerProvider {
 
   async trackExpense(input: TrackExpenseInput): Promise<TrackExpenseResult> {
     assertUsdCurrency(input.currency);
+    const traceId = buildTrackExpenseTraceId(input.agentId);
+    let stage = "start";
+
+    logTrackExpenseFlow({
+      traceId,
+      stage,
+      status: "ok",
+      agentId: input.agentId,
+      currency: input.currency,
+      amountMinor: input.amountMinor,
+      occurredAt: input.occurredAt,
+    });
 
     try {
+      stage = "connect-db";
       const db = getPuzzleDatabase();
 
+      stage = "validate-occurredAt";
       const occurredAt = new Date(input.occurredAt);
       if (Number.isNaN(occurredAt.getTime())) {
         throw new LedgerError(
@@ -216,7 +230,8 @@ export class PuzzleLedgerProvider implements LedgerProvider {
         );
       }
 
-      await db
+      stage = "upsert-agent";
+      const insertedAgents = await db
         .insert(agents)
         .values({
           id: input.agentId,
@@ -224,8 +239,21 @@ export class PuzzleLedgerProvider implements LedgerProvider {
           startingMinor: 0,
           currency: "USD",
         })
-        .onConflictDoNothing({ target: agents.id });
+        .onConflictDoNothing({ target: agents.id })
+        .returning({
+          id: agents.id,
+        });
 
+      const wasAgentCreated = insertedAgents.length > 0;
+      logTrackExpenseFlow({
+        traceId,
+        stage: "agent-upserted",
+        status: "ok",
+        agentId: input.agentId,
+        wasAgentCreated,
+      });
+
+      stage = "load-agent";
       const [agent] = await db
         .select({
           id: agents.id,
@@ -242,6 +270,7 @@ export class PuzzleLedgerProvider implements LedgerProvider {
         );
       }
 
+      stage = "insert-expense";
       const [inserted] = await db
         .insert(expenses)
         .values({
@@ -270,6 +299,15 @@ export class PuzzleLedgerProvider implements LedgerProvider {
         );
       }
 
+      logTrackExpenseFlow({
+        traceId,
+        stage: "expense-inserted",
+        status: "ok",
+        agentId: input.agentId,
+        expenseId: inserted.id,
+        wasAgentCreated,
+      });
+
       return {
         currency: input.currency,
         expense: {
@@ -284,6 +322,15 @@ export class PuzzleLedgerProvider implements LedgerProvider {
         },
       };
     } catch (err) {
+      logTrackExpenseFlow({
+        traceId,
+        stage,
+        status: "error",
+        agentId: input.agentId,
+        errorCode: err instanceof LedgerError ? err.code : "INTERNAL_ERROR",
+        errorMessage: err instanceof Error ? err.message : "Unexpected error",
+      });
+
       if (err instanceof LedgerError) {
         throw err;
       }
@@ -328,4 +375,27 @@ function toInt(value: number | string | null | undefined): number {
   }
 
   return 0;
+}
+
+function buildTrackExpenseTraceId(agentId: string): string {
+  const normalizedAgentId = agentId.trim() || "unknown-agent";
+  return `${normalizedAgentId}-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+}
+
+function logTrackExpenseFlow(params: {
+  traceId: string;
+  stage: string;
+  status: "ok" | "error";
+  agentId: string;
+  currency?: string;
+  amountMinor?: number;
+  occurredAt?: string;
+  wasAgentCreated?: boolean;
+  expenseId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+}): void {
+  console.log(`[track-expense] ${JSON.stringify(params)}`);
 }

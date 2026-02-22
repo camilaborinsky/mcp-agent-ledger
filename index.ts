@@ -216,6 +216,12 @@ server.tool(
   },
   async (input) => {
     const startedAt = Date.now();
+    const rawInputForLog = {
+      agentId: input.agentId,
+      currency: input.currency,
+      amountMinor: input.amountMinor,
+      occurredAt: input.occurredAt,
+    };
     let filtersForLog = safeNormalizeFilters({
       agentId: input.agentId,
       currency: input.currency,
@@ -240,6 +246,11 @@ server.tool(
 
       return object(result);
     } catch (err) {
+      logTrackExpenseToolError({
+        providerName,
+        input: rawInputForLog,
+        err,
+      });
       logToolResult({
         toolName: "trackExpense",
         providerName,
@@ -528,6 +539,25 @@ function logToolResult(params: {
   const { toolName, providerName, filters, durationMs, status } = params;
   console.log(
     `[ledger-tool] tool=${toolName} provider=${providerName} filters=${hashFilters(filters)} durationMs=${durationMs} status=${status}`
+  );
+}
+
+function logTrackExpenseToolError(params: {
+  providerName: string;
+  input: {
+    agentId: string;
+    currency?: string;
+    amountMinor: number;
+    occurredAt?: string;
+  };
+  err: unknown;
+}): void {
+  const { providerName, input, err } = params;
+  const errorCode = err instanceof LedgerError ? err.code : "INTERNAL_ERROR";
+  const errorMessage = err instanceof Error ? err.message : "Unexpected error";
+
+  console.error(
+    `[track-expense-tool-error] provider=${providerName} agentId=${input.agentId} currency=${input.currency || DEFAULT_CURRENCY} amountMinor=${input.amountMinor} occurredAt=${input.occurredAt || "<default-now>"} errorCode=${errorCode} errorMessage=${JSON.stringify(errorMessage)}`
   );
 }
 
