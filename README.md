@@ -49,6 +49,7 @@ Input schema:
 Output schema:
 - `currency: string`
 - `expense: Expense`
+- If `LEDGER_PROVIDER=puzzle` and `agentId` does not exist, the agent is auto-created with `name=agentId`, `starting_minor=0`, `currency=USD`.
 
 `getExpenses` and `getBalance` both render the widget `agent-ledger-dashboard`.  
 `trackExpense` is a write tool and returns JSON only.
@@ -57,12 +58,24 @@ Output schema:
 
 Set `LEDGER_PROVIDER` to choose a backend implementation:
 - `mock` (default)
-- `puzzle` (stub)
+- `puzzle` (Supabase-backed PostgreSQL)
 - `manufact` (stub)
 
-Required env vars for stubs:
-- Puzzle: `PUZZLE_API_KEY`, `PUZZLE_BASE_URL`
+Required env vars:
+- Puzzle: `PUZZLE_DATABASE_URL`
 - Manufact: `MANUFACT_API_KEY`, `MANUFACT_BASE_URL`
+
+## Puzzle DB Setup
+
+When using `LEDGER_PROVIDER=puzzle`, run migrations against your Supabase PostgreSQL database:
+
+```bash
+export PUZZLE_DATABASE_URL='postgresql://...'
+npm run db:generate
+npm run db:migrate
+```
+
+The initial migration creates `agents` + `expenses` tables, enables `pgcrypto` for UUIDs, and seeds the default agents.
 
 ## Local Development
 
