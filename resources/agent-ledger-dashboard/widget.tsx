@@ -494,6 +494,90 @@ const AgentLedgerDashboard: React.FC = () => {
     isPending: getExpensesPending,
   } = useCallTool("getExpenses");
 
+  // Safe ref for hooks that must run every render (Rules of Hooks). Never return before these useMemos.
+  const dataRef = parsed.success ? parsed.data : null;
+
+  const unknownAgents = useMemo(
+    () =>
+      dataRef
+        ? dataRef.balances.filter(
+            (b) =>
+              isUnknownAgent(b.agentId) && !dismissedAlerts.includes(b.agentId)
+          )
+        : [],
+    [dataRef, dismissedAlerts]
+  );
+
+  const categories = useMemo(
+    () =>
+      dataRef
+        ? [...new Set(dataRef.expenseSummary.byCategory.map((c) => c.category))]
+        : [],
+    [dataRef]
+  );
+
+  const filteredAndSortedExpenses = useMemo(() => {
+    if (!dataRef) return [];
+    let list = [...dataRef.expenses];
+    if (filterCategory !== "all") {
+      list = list.filter((e) => e.category === filterCategory);
+    }
+    if (filterAgentId !== "all") {
+      list = list.filter((e) => e.agentId === filterAgentId);
+    }
+    if (searchText.trim()) {
+      const q = searchText.trim().toLowerCase();
+      list = list.filter(
+        (e) =>
+          e.description.toLowerCase().includes(q) ||
+          e.vendor.toLowerCase().includes(q)
+      );
+    }
+    list.sort((a, b) => {
+      switch (expenseSort) {
+        case "dateDesc":
+          return (
+            new Date(b.occurredAt).getTime() -
+            new Date(a.occurredAt).getTime()
+          );
+        case "dateAsc":
+          return (
+            new Date(a.occurredAt).getTime() -
+            new Date(b.occurredAt).getTime()
+          );
+        case "amountDesc":
+          return b.amountMinor - a.amountMinor;
+        case "amountAsc":
+          return a.amountMinor - b.amountMinor;
+        case "vendor":
+          return a.vendor.localeCompare(b.vendor);
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [
+    dataRef,
+    filterCategory,
+    filterAgentId,
+    searchText,
+    expenseSort,
+  ]);
+
+  const totalExpensePages = Math.max(
+    1,
+    Math.ceil(filteredAndSortedExpenses.length / EXPENSE_PAGE_SIZE)
+  );
+
+  const paginatedExpenses = useMemo(
+    () =>
+      filteredAndSortedExpenses.slice(
+        (expensePage - 1) * EXPENSE_PAGE_SIZE,
+        expensePage * EXPENSE_PAGE_SIZE
+      ),
+    [filteredAndSortedExpenses, expensePage]
+  );
+
   if (isPending || !parsed.success) {
     return (
       <McpUseProvider autoSize>
@@ -518,15 +602,6 @@ const AgentLedgerDashboard: React.FC = () => {
 
   const data = parsed.data;
   const agentScope = data.filters.agentId ? data.filters.agentId : "all agents";
-
-  // Improvement 2: Unknown agents (for banner)
-  const unknownAgents = useMemo(
-    () =>
-      data.balances.filter(
-        (b) => isUnknownAgent(b.agentId) && !dismissedAlerts.includes(b.agentId)
-      ),
-    [data.balances, dismissedAlerts]
-  );
 
   const handleOpenAgentDetail = (agentId: string) => {
     setSelectedAgentId(agentId);
@@ -597,68 +672,6 @@ const AgentLedgerDashboard: React.FC = () => {
     setAgentDetailData(null);
     setExpandedExpenseId(null);
   };
-
-  const categories = useMemo(
-    () => [...new Set(data.expenseSummary.byCategory.map((c) => c.category))],
-    [data.expenseSummary.byCategory]
-  );
-
-  const filteredAndSortedExpenses = useMemo(() => {
-    let list = [...data.expenses];
-
-    if (filterCategory !== "all") {
-      list = list.filter((e) => e.category === filterCategory);
-    }
-    if (filterAgentId !== "all") {
-      list = list.filter((e) => e.agentId === filterAgentId);
-    }
-    if (searchText.trim()) {
-      const q = searchText.trim().toLowerCase();
-      list = list.filter(
-        (e) =>
-          e.description.toLowerCase().includes(q) ||
-          e.vendor.toLowerCase().includes(q)
-      );
-    }
-
-    list.sort((a, b) => {
-      switch (expenseSort) {
-        case "dateDesc":
-          return new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime();
-        case "dateAsc":
-          return new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime();
-        case "amountDesc":
-          return b.amountMinor - a.amountMinor;
-        case "amountAsc":
-          return a.amountMinor - b.amountMinor;
-        case "vendor":
-          return a.vendor.localeCompare(b.vendor);
-        default:
-          return 0;
-      }
-    });
-
-    return list;
-  }, [
-    data.expenses,
-    filterCategory,
-    filterAgentId,
-    searchText,
-    expenseSort,
-  ]);
-
-  const totalExpensePages = Math.max(
-    1,
-    Math.ceil(filteredAndSortedExpenses.length / EXPENSE_PAGE_SIZE)
-  );
-  const paginatedExpenses = useMemo(
-    () =>
-      filteredAndSortedExpenses.slice(
-        (expensePage - 1) * EXPENSE_PAGE_SIZE,
-        expensePage * EXPENSE_PAGE_SIZE
-      ),
-    [filteredAndSortedExpenses, expensePage]
-  );
 
   const handleTrackExpense = (e: React.FormEvent) => {
     e.preventDefault();
