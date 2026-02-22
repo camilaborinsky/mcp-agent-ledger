@@ -583,17 +583,17 @@ const AgentLedgerDashboard: React.FC = () => {
       currency: data.filters.currency,
     })
       .then((result: unknown) => {
-        const r = result as {
-          structuredContent?: {
-            expenses?: ExpenseItem[];
-            expenseSummary?: ExpenseSummaryLike;
-            summary?: ExpenseSummaryLike;
-            currency?: string;
-            from?: string;
-            to?: string;
-          };
+        type ExpensesToolContent = {
+          expenses?: ExpenseItem[];
+          expenseSummary?: ExpenseSummaryLike;
+          summary?: ExpenseSummaryLike;
+          currency?: string;
+          from?: string;
+          to?: string;
         };
-        const content = r?.structuredContent ?? r;
+        const wrapped = result as { structuredContent?: ExpensesToolContent };
+        const content: ExpensesToolContent =
+          wrapped.structuredContent ?? (result as ExpensesToolContent) ?? {};
         const expenses = content?.expenses ?? data.expenses.filter((e) => e.agentId === agentId);
         const summary = content?.expenseSummary ?? content?.summary ?? {
           totalExpenseMinor: expenses.reduce((s, e) => s + e.amountMinor, 0),
