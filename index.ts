@@ -11,10 +11,11 @@ import type {
   TrackExpenseInput,
 } from "./src/ledger/types.js";
 
+// Bump version when you change the widget UI so clients (e.g. ChatGPT) refetch the widget bundle instead of using a cached one.
 const server = new MCPServer({
   name: "mcp-agent-ledger",
   title: "mcp-agent-ledger",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "MCP server exposing agent ledger tools and ChatGPT widget UI",
   baseUrl: process.env.MCP_URL || "http://localhost:3000",
   favicon: "favicon.ico",

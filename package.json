@@ -1,7 +1,7 @@
 {
   "name": "mcp-agent-ledger",
   "type": "module",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "MCP server: mcp-agent-ledger",
   "author": "",
   "license": "MIT",

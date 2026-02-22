@@ -81,6 +81,24 @@ Abrir http://localhost:3000/inspector y probar:
 
 ---
 
+## Widget no actualiza en producción
+
+Si después de deployar seguís viendo la UI vieja del widget (sin tabs, sin “By agent”, etc.) al usar el MCP desde ChatGPT u otro cliente:
+
+1. **Subir versión del servidor**  
+   En `index.ts`, `MCPServer({ version: "x.y.z" })` y en `package.json` `"version"`. Subí el patch o minor (ej. `1.0.0` → `1.1.0`) cada vez que cambies la UI del widget. Así el cliente puede tratar el widget como nuevo y no usar caché vieja.
+
+2. **Volver a conectar el MCP**  
+   En el cliente (ej. ChatGPT): quitar el servidor MCP y agregarlo de nuevo para que vuelva a descubrir el servidor y, si aplica, la URL del widget.
+
+3. **Probar en ventana privada / otro navegador**  
+   Para descartar caché local del navegador.
+
+4. **Confirmar que el deploy usó el repo actualizado**  
+   El deploy de mcp-use construye desde GitHub. Hacé push de los cambios y volvé a deployar; revisá en el dashboard de Manufact que el commit sea el correcto.
+
+---
+
 ## Resumen en una frase
 
 **mcp-agent-ledger**: servidor MCP con mcp-use, 3 tools (getExpenses, getBalance, trackExpense) y un widget interactivo que ya tiene tabs, filtros, paginación, formulario de track expense vía useCallTool y botones Ask AI con sendFollowUpMessage; buscamos mejorar más la interactividad sin duplicar esto.

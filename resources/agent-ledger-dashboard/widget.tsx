@@ -29,13 +29,6 @@ type ExpenseSummaryLike = {
   byCategory: Array<{ category: string; totalExpenseMinor: number }>;
 };
 
-/** Known agents; any other ID is treated as unknown for the alert banner. */
-const KNOWN_AGENT_IDS = ["marketing-agent", "research-agent"];
-
-function isUnknownAgent(agentId: string): boolean {
-  return !KNOWN_AGENT_IDS.includes(agentId);
-}
-
 function formatTimestampFull(value: string, locale?: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
@@ -186,7 +179,6 @@ function AgentDetailView(props: {
   onAskAiAnalyze: (agentId: string) => void;
   onAskAiSetBudget: (agentId: string, agentName: string) => void;
   onAskAiExpense: (exp: ExpenseItem) => void;
-  isUnknownAgent: boolean;
   expandedExpenseId: string | null;
   onToggleExpand: (id: string | null) => void;
   formatMoney: (amountMinor: number, currency: string, locale?: string) => string;
@@ -205,7 +197,6 @@ function AgentDetailView(props: {
     onAskAiAnalyze,
     onAskAiSetBudget,
     onAskAiExpense,
-    isUnknownAgent,
     expandedExpenseId,
     onToggleExpand,
     formatMoney,
@@ -248,16 +239,9 @@ function AgentDetailView(props: {
         ← All agents
       </button>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-xl font-semibold text-[hsl(var(--foreground))]">
-          {agentName}
-        </h3>
-        {isUnknownAgent && (
-          <span className="rounded bg-red-500/20 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
-            ⚠️ Unregistered
-          </span>
-        )}
-      </div>
+      <h3 className="text-xl font-semibold text-[hsl(var(--foreground))]">
+        {agentName}
+      </h3>
 
       <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
         <p className="text-sm text-[hsl(var(--muted-foreground))]">
@@ -477,9 +461,6 @@ const AgentLedgerDashboard: React.FC = () => {
     to: string;
   } | null>(null);
 
-  // Improvement 2: Unknown agent banner
-  const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
-
   // Improvement 5: Loading states
   const [refreshButtonLoading, setRefreshButtonLoading] = useState(false);
 
@@ -496,17 +477,6 @@ const AgentLedgerDashboard: React.FC = () => {
 
   // Safe ref for hooks that must run every render (Rules of Hooks). Never return before these useMemos.
   const dataRef = parsed.success ? parsed.data : null;
-
-  const unknownAgents = useMemo(
-    () =>
-      dataRef
-        ? dataRef.balances.filter(
-            (b) =>
-              isUnknownAgent(b.agentId) && !dismissedAlerts.includes(b.agentId)
-          )
-        : [],
-    [dataRef, dismissedAlerts]
-  );
 
   const categories = useMemo(
     () =>
@@ -757,52 +727,6 @@ const AgentLedgerDashboard: React.FC = () => {
           </div>
         </header>
 
-        {/* Improvement 2: Unknown agent alert banner */}
-        {unknownAgents.length > 0 && (
-          <div
-            className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/50 bg-amber-500/15 px-4 py-3 text-amber-800 dark:text-amber-200"
-            role="alert"
-          >
-            <div className="flex items-center gap-2 font-medium">
-              <span aria-hidden>⚠️</span>
-              <span>
-                Unknown agent detected: {unknownAgents.map((a) => a.agentId).join(", ")} — spending{" "}
-                {unknownAgents
-                  .map((a) =>
-                    formatMoney(a.spentMinor, data.filters.currency, locale)
-                  )
-                  .join(", ")}{" "}
-                with no registered owner
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  sendFollowUpMessage(
-                    `An unknown agent '${unknownAgents[0].agentId}' appeared in the ledger spending ${formatMoney(unknownAgents[0].spentMinor, data.filters.currency, locale)}. I didn't create this agent. Who is this and should I be concerned?`
-                  )
-                }
-                className="rounded border border-amber-600 bg-amber-500/30 px-2 py-1.5 text-sm font-medium hover:bg-amber-500/50 focus:outline-none focus:ring-2 focus:ring-amber-500"
-              >
-                🔍 Ask AI who this is
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setDismissedAlerts((prev) => [
-                    ...prev,
-                    ...unknownAgents.map((a) => a.agentId),
-                  ])
-                }
-                className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1.5 text-sm font-medium hover:bg-[hsl(var(--muted))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))]"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        )}
-
         <section className="mb-6 grid gap-3 md:grid-cols-3">
           <MetricCard
             label="Total Spent"
@@ -854,7 +778,6 @@ const AgentLedgerDashboard: React.FC = () => {
                 `Explain this expense in detail: ${exp.vendor} charged ${formatMoney(exp.amountMinor, data.filters.currency, locale)} to ${exp.agentId} for '${exp.description}' in category '${exp.category}' on ${formatTimestamp(exp.occurredAt, locale)}. Is this expected? How does it compare to typical costs for this service?`
               )
             }
-            isUnknownAgent={isUnknownAgent(selectedAgentId)}
             expandedExpenseId={expandedExpenseId}
             onToggleExpand={setExpandedExpenseId}
             formatMoney={formatMoney}
@@ -1138,16 +1061,9 @@ const AgentLedgerDashboard: React.FC = () => {
                       }}
                       className="flex cursor-pointer flex-col rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 transition-colors hover:bg-[hsl(var(--muted))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))]"
                     >
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-[hsl(var(--foreground))]">
-                          {row.agentName}
-                        </p>
-                        {isUnknownAgent(row.agentId) && (
-                          <span className="rounded bg-red-500/20 px-1.5 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
-                            ⚠️ Unregistered
-                          </span>
-                        )}
-                      </div>
+                      <p className="text-sm font-medium text-[hsl(var(--foreground))]">
+                        {row.agentName}
+                      </p>
                       <p className="mt-1 text-2xl font-semibold text-[hsl(var(--foreground))]">
                         {formatMoney(
                           row.totalExpenseMinor,
