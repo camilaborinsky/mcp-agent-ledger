@@ -4,10 +4,110 @@ import {
   useCallTool,
   type WidgetMetadata,
 } from "mcp-use/react";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, Component, type ReactNode } from "react";
 import "../styles.css";
 import type { AgentLedgerDashboardProps } from "./types";
 import { propSchema } from "./types";
+
+/** Catches render errors so the inspector shows a message instead of a blank iframe. */
+class WidgetErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          style={{
+            padding: 24,
+            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            color: "var(--text-primary)",
+            background: "var(--bg-primary)",
+            minHeight: 200,
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 14, color: "var(--text-secondary)" }}>
+            Error loading dashboard. Check the console or try running the tool again.
+          </p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* Inline SVG icons (currentColor, 16x16 or as noted) */
+type IconProps = { size?: number; className?: string; style?: React.CSSProperties };
+
+function IconSearch({ size = 16, className = "", style }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className} style={style} aria-hidden>
+      <path d="M7 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM14 14l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconChevronDown({ size = 12, className = "", style }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" className={className} style={style} aria-hidden>
+      <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconChevronRight({ size = 12, className = "", style }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" className={className} style={style} aria-hidden>
+      <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconArrowRight({ size = 16, className = "", style }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className} style={style} aria-hidden>
+      <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconRefresh({ size = 16, className = "", style }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className} style={style} aria-hidden>
+      <path d="M2 8a6 6 0 0 1 9.5-4.5L13 5v3H9l1.5-1.5A4 4 0 1 0 4 10H2a6 6 0 0 1 0-2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconSparkle({ size = 16, className = "", style }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className} style={style} aria-hidden>
+      <path d="M8 2l1 4 4 1-4 1-1 4-1-4-4-1 4-1 1-4zM12 10l.5 2 2 .5-2 .5-.5 2-.5-2-2-.5 2-.5.5-2z" fill="currentColor" />
+    </svg>
+  );
+}
+
+const AGENT_COLORS = ["#635bff", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6"];
+
+function agentColor(agentId: string): string {
+  let h = 0;
+  for (let i = 0; i < agentId.length; i++) h = (h << 5) - h + agentId.charCodeAt(i);
+  return AGENT_COLORS[Math.abs(h) % AGENT_COLORS.length];
+}
+
+function formatTimestampRelative(value: string, locale?: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  const now = new Date();
+  const diffMs = now.getTime() - parsed.getTime();
+  const diffM = Math.floor(diffMs / 60000);
+  const diffH = Math.floor(diffMs / 3600000);
+  const diffD = Math.floor(diffMs / 86400000);
+  if (diffM < 1) return "Just now";
+  if (diffM < 60) return `${diffM}m ago`;
+  if (diffH < 24) return `${diffH}h ago`;
+  if (diffD === 1) return "Yesterday";
+  if (diffD < 7) return `${diffD} days ago`;
+  return parsed.toLocaleDateString(locale ?? "en-US", { month: "short", day: "numeric", year: parsed.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+}
 
 type TabId = "overview" | "byAgent" | "byCategory";
 type ExpenseSort = "dateDesc" | "dateAsc" | "amountDesc" | "amountAsc" | "vendor";
@@ -76,19 +176,18 @@ function formatTimestamp(value: string, locale?: string): string {
   });
 }
 
-function MetricCard(props: { label: string; value: string; caption: string }) {
+function MetricCard(props: { label: string; value: string; caption?: string }) {
   const { label, value, caption } = props;
-
   return (
-    <article className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
-      <p className="text-sm text-[hsl(var(--muted-foreground))]">{label}</p>
-      <p className="mt-1 text-3xl font-semibold tracking-tight">{value}</p>
-      <p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">{caption}</p>
+    <article className="kpi-card">
+      <p className="kpi-card-label">{label}</p>
+      <p className="kpi-card-value">{value}</p>
+      {caption != null && <p className="kpi-card-label" style={{ marginTop: 4 }}>{caption}</p>}
     </article>
   );
 }
 
-/** Budget progress bar: green &lt;70%, yellow 70–90%, red &gt;90%. No budget = muted text + Ask AI link. */
+/** Budget progress bar: green <70%, yellow 70–90%, red >90%. No budget = muted text + Ask AI link. */
 function BudgetBar(props: {
   spentMinor: number;
   budgetMinor?: number;
@@ -98,25 +197,13 @@ function BudgetBar(props: {
   agentName: string;
   onAskAiSetBudget: (agentId: string, agentName: string) => void;
 }) {
-  const {
-    spentMinor,
-    budgetMinor,
-    currency,
-    locale,
-    agentId,
-    agentName,
-    onAskAiSetBudget,
-  } = props;
+  const { spentMinor, budgetMinor, currency, locale, agentId, agentName, onAskAiSetBudget } = props;
 
   if (budgetMinor == null || budgetMinor <= 0) {
     return (
-      <div className="text-sm text-[hsl(var(--muted-foreground))]">
+      <div className="budget-bar-wrap" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
         No budget set.{" "}
-        <button
-          type="button"
-          onClick={() => onAskAiSetBudget(agentId, agentName)}
-          className="underline hover:no-underline focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))] rounded"
-        >
+        <button type="button" onClick={() => onAskAiSetBudget(agentId, agentName)} className="back-link" style={{ display: "inline", margin: 0 }}>
           Ask AI to set one
         </button>
       </div>
@@ -124,38 +211,35 @@ function BudgetBar(props: {
   }
 
   const pct = Math.min(100, (spentMinor / budgetMinor) * 100);
-  const barColor =
-    pct < 70 ? "bg-green-500" : pct < 90 ? "bg-amber-500" : "bg-red-500";
+  const fillClass = pct < 70 ? "ok" : pct < 90 ? "warning" : "danger";
 
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-sm text-[hsl(var(--muted-foreground))]">
-        <span>
-          {formatMoney(spentMinor, currency, locale)} /{" "}
-          {formatMoney(budgetMinor, currency, locale)}
-        </span>
+    <div className="budget-bar-wrap">
+      <div className="budget-bar-label">
+        <span>{formatMoney(spentMinor, currency, locale)} / {formatMoney(budgetMinor, currency, locale)}</span>
         <span>{pct.toFixed(0)}%</span>
       </div>
-      <div
-        className="h-2 w-full overflow-hidden rounded-full bg-[hsl(var(--muted))]"
-        role="progressbar"
-        aria-valuenow={pct}
-        aria-valuemin={0}
-        aria-valuemax={100}
-      >
-        <div
-          className={`h-full rounded-full ${barColor} transition-[width]`}
-          style={{ width: `${pct}%` }}
-        />
+      <div className="budget-bar-track" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <div className={`budget-bar-fill ${fillClass}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
 }
 
-function Spinner({ className = "" }: { className?: string }) {
+function Spinner({ className = "", style }: { className?: string; style?: React.CSSProperties }) {
   return (
     <div
-      className={`inline-block h-5 w-5 animate-spin rounded-full border-2 border-[hsl(var(--border))] border-t-[hsl(var(--foreground))] ${className}`}
+      className={className}
+      style={{
+        display: "inline-block",
+        width: 20,
+        height: 20,
+        borderRadius: "50%",
+        border: "2px solid var(--border-stripe)",
+        borderTopColor: "var(--text-primary)",
+        animation: "spin 0.8s linear infinite",
+        ...style,
+      }}
       role="status"
       aria-label="Loading"
     />
@@ -184,6 +268,8 @@ function AgentDetailView(props: {
   formatMoney: (amountMinor: number, currency: string, locale?: string) => string;
   formatTimestamp: (value: string, locale?: string) => string;
   formatTimestampFull: (value: string, locale?: string) => string;
+  formatTimestampRelative: (value: string, locale?: string) => string;
+  agentColor: (agentId: string) => string;
 }) {
   const [detailPage, setDetailPage] = useState(1);
   const {
@@ -200,8 +286,8 @@ function AgentDetailView(props: {
     expandedExpenseId,
     onToggleExpand,
     formatMoney,
-    formatTimestamp,
-    formatTimestampFull,
+    formatTimestampRelative,
+    agentColor,
   } = props;
 
   const agentName = balance?.agentName ?? agentId;
@@ -213,99 +299,89 @@ function AgentDetailView(props: {
     detailPage * EXPENSE_PAGE_SIZE
   );
 
+  const maxCategory = summary?.byCategory.reduce((m, c) => Math.max(m, c.totalExpenseMinor), 0) ?? 1;
+
   if (getExpensesPending && !agentDetailData) {
     return (
-      <div className="space-y-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm font-medium text-[hsl(var(--foreground))] hover:underline focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))] rounded"
-        >
-          ← All agents
-        </button>
-        <div className="h-32 animate-pulse rounded-lg bg-[hsl(var(--muted))]" />
-        <div className="h-64 animate-pulse rounded-lg bg-[hsl(var(--muted))]" />
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <button type="button" onClick={onBack} className="back-link">← All agents</button>
+        <div className="skeleton skeleton-card" style={{ height: 96 }} />
+        <div className="skeleton skeleton-card" style={{ height: 200 }} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <button
-        type="button"
-        onClick={onBack}
-        className="text-sm font-medium text-[hsl(var(--foreground))] hover:underline focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))] rounded"
-      >
-        ← All agents
-      </button>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <button type="button" onClick={onBack} className="back-link">← All agents</button>
 
-      <h3 className="text-xl font-semibold text-[hsl(var(--foreground))]">
-        {agentName}
-      </h3>
-
-      <div className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
-        <p className="text-sm text-[hsl(var(--muted-foreground))]">
-          Total spent: {summary ? formatMoney(summary.totalExpenseMinor, currency, locale) : "—"} · {summary?.expenseCount ?? 0} transactions
-        </p>
-        {balance && (
-          <div className="mt-2">
-            <BudgetBar
-              spentMinor={balance.spentMinor}
-              budgetMinor={undefined}
-              currency={currency}
-              locale={locale}
-              agentId={balance.agentId}
-              agentName={balance.agentName}
-              onAskAiSetBudget={onAskAiSetBudget}
-            />
-          </div>
-        )}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span className="agent-dot" style={{ backgroundColor: agentColor(agentId), width: 12, height: 12 }} />
+        <h3 className="section-label-lg" style={{ marginBottom: 0 }}>{agentName}</h3>
       </div>
+
+      <div className="kpi-strip" style={{ marginBottom: 16 }}>
+        <MetricCard label="Total spent" value={summary ? formatMoney(summary.totalExpenseMinor, currency, locale) : "—"} />
+        <MetricCard label="Transactions" value={String(summary?.expenseCount ?? 0)} />
+        <MetricCard label="Top category" value={summary?.byCategory[0]?.category ?? "—"} />
+      </div>
+
+      {balance && (
+        <div className="kpi-card" style={{ padding: 16 }}>
+          <BudgetBar
+            spentMinor={balance.spentMinor}
+            budgetMinor={undefined}
+            currency={currency}
+            locale={locale}
+            agentId={balance.agentId}
+            agentName={balance.agentName}
+            onAskAiSetBudget={onAskAiSetBudget}
+          />
+        </div>
+      )}
 
       {summary && summary.byCategory.length > 0 && (
         <div>
-          <h4 className="mb-2 text-sm font-medium text-[hsl(var(--foreground))]">Category breakdown</h4>
-          <div className="flex flex-wrap gap-2">
+          <h4 className="section-label">Category breakdown</h4>
+          <div className="category-bars">
             {summary.byCategory.map((c) => (
-              <span
-                key={c.category}
-                className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-2 py-1 text-sm"
-              >
-                {c.category}: {formatMoney(c.totalExpenseMinor, currency, locale)}
-              </span>
+              <div key={c.category} className="category-bar-item">
+                <span className="category-bar-label">{c.category}</span>
+                <div className="category-bar-track">
+                  <div className="category-bar-fill" style={{ width: `${(c.totalExpenseMinor / maxCategory) * 100}%` }} />
+                </div>
+                <span className="category-bar-value">{formatMoney(c.totalExpenseMinor, currency, locale)}</span>
+              </div>
             ))}
           </div>
         </div>
       )}
 
       <div>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h4 className="text-sm font-medium text-[hsl(var(--foreground))]">Expenses</h4>
-          <button
-            type="button"
-            onClick={() => onAskAiAnalyze(agentId)}
-            className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-sm font-medium hover:bg-[hsl(var(--muted))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))]"
-          >
-            🔍 Ask AI to analyze
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+          <h4 className="section-label" style={{ marginBottom: 0 }}>Expenses</h4>
+          <button type="button" onClick={() => onAskAiAnalyze(agentId)} className="btn-secondary">
+            <IconSparkle size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />
+            Ask AI to analyze
           </button>
         </div>
         {paginated.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-4 text-sm text-[hsl(var(--muted-foreground))]">
+          <div className="empty-state">
             No expenses for this agent.
-          </p>
+          </div>
         ) : (
           <>
-            <div className="overflow-x-auto rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
-              <table className="w-full min-w-[860px] text-sm">
+            <div className="table-wrap">
+              <table className="table" style={{ minWidth: 720 }}>
                 <thead>
-                  <tr className="bg-[hsl(var(--muted))]">
-                    <th className="w-8 px-1 py-2" aria-label="Expand" />
-                    <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">Date</th>
-                    <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">Vendor</th>
-                    <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">Category</th>
-                    <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">Description</th>
-                    <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">Amount</th>
-                    <th className="w-10 px-1 py-2" aria-label="Ask AI" />
+                  <tr>
+                    <th style={{ width: 32 }} aria-label="Expand" />
+                    <th>Date</th>
+                    <th>Vendor</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th className="text-right">Amount</th>
+                    <th style={{ width: 40 }} aria-label="Ask AI" />
                   </tr>
                 </thead>
                 <tbody>
@@ -318,33 +394,21 @@ function AgentDetailView(props: {
                       formatMoney={formatMoney}
                       formatTimestamp={formatTimestamp}
                       formatTimestampFull={formatTimestampFull}
+                      formatTimestampRelative={formatTimestampRelative}
                       expandedExpenseId={expandedExpenseId}
                       onToggleExpand={onToggleExpand}
                       onAskAi={onAskAiExpense}
+                      agentColor={agentColor}
                     />
                   ))}
                 </tbody>
               </table>
             </div>
             {totalPages > 1 && (
-              <div className="mt-2 flex items-center gap-2 text-sm text-[hsl(var(--muted-foreground))]">
-                <button
-                  type="button"
-                  onClick={() => setDetailPage((p) => Math.max(1, p - 1))}
-                  disabled={detailPage === 1}
-                  className="rounded border border-[hsl(var(--border))] px-2 py-1 disabled:opacity-50"
-                >
-                  Previous
-                </button>
+              <div className="pagination">
+                <button type="button" onClick={() => setDetailPage((p) => Math.max(1, p - 1))} disabled={detailPage === 1} className="btn-ghost">Previous</button>
                 <span>Page {detailPage} of {totalPages}</span>
-                <button
-                  type="button"
-                  onClick={() => setDetailPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={detailPage === totalPages}
-                  className="rounded border border-[hsl(var(--border))] px-2 py-1 disabled:opacity-50"
-                >
-                  Next
-                </button>
+                <button type="button" onClick={() => setDetailPage((p) => Math.min(totalPages, p + 1))} disabled={detailPage === totalPages} className="btn-ghost">Next</button>
               </div>
             )}
           </>
@@ -361,66 +425,65 @@ function ExpenseRowWithActions(props: {
   formatMoney: (amountMinor: number, currency: string, locale?: string) => string;
   formatTimestamp: (value: string, locale?: string) => string;
   formatTimestampFull: (value: string, locale?: string) => string;
+  formatTimestampRelative: (value: string, locale?: string) => string;
   expandedExpenseId: string | null;
   onToggleExpand: (id: string | null) => void;
   onAskAi: (exp: ExpenseItem) => void;
-  /** When true, show Agent column (e.g. in main Overview table). */
+  agentColor: (agentId: string) => string;
   showAgentColumn?: boolean;
 }) {
-  const { item, currency, locale, formatMoney, formatTimestamp, formatTimestampFull, expandedExpenseId, onToggleExpand, onAskAi, showAgentColumn } = props;
+  const { item, currency, locale, formatMoney, formatTimestampFull, formatTimestampRelative, expandedExpenseId, onToggleExpand, onAskAi, agentColor, showAgentColumn } = props;
   const isExpanded = expandedExpenseId === item.id;
   const colSpan = showAgentColumn ? 8 : 7;
 
   return (
     <>
-      <tr className="border-t border-[hsl(var(--border))]">
-        <td className="px-1 py-2">
+      <tr>
+        <td>
           <button
             type="button"
             onClick={() => onToggleExpand(isExpanded ? null : item.id)}
-            className="p-1 focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))] rounded"
+            className="expand-btn"
             aria-expanded={isExpanded}
             title={isExpanded ? "Collapse" : "Expand details"}
           >
-            {isExpanded ? "▾" : "▸"}
+            {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
           </button>
         </td>
-        <td className="px-3 py-2 text-[hsl(var(--foreground))]">{formatTimestamp(item.occurredAt, locale)}</td>
+        <td>
+          <span className="date-muted" title={formatTimestampFull(item.occurredAt, locale)}>{formatTimestampRelative(item.occurredAt, locale)}</span>
+        </td>
         {showAgentColumn && (
-          <td className="px-3 py-2 text-[hsl(var(--foreground))]">{item.agentName}</td>
+          <td>
+            <div className="agent-cell">
+              <span className="agent-dot" style={{ backgroundColor: agentColor(item.agentId) }} />
+              {item.agentName}
+            </div>
+          </td>
         )}
-        <td className="px-3 py-2 text-[hsl(var(--foreground))]">{item.vendor}</td>
-        <td className="px-3 py-2 capitalize text-[hsl(var(--foreground))]">{item.category}</td>
-        <td className="px-3 py-2 text-[hsl(var(--foreground))]">{item.description}</td>
-        <td className="px-3 py-2 font-medium text-[hsl(var(--foreground))]">{formatMoney(item.amountMinor, currency, locale)}</td>
-        <td className="px-1 py-2">
-          <button
-            type="button"
-            onClick={() => onAskAi(item)}
-            className="rounded p-1 hover:bg-[hsl(var(--muted))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))]"
-            title="Ask AI about this expense"
-          >
-            🔍
-          </button>
+        <td>{item.vendor}</td>
+        <td><span className="category-badge">{item.category}</span></td>
+        <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.description}>{item.description}</td>
+        <td className="text-right">{formatMoney(item.amountMinor, currency, locale)}</td>
+        <td>
+          <span className="row-actions">
+            <button type="button" onClick={() => onAskAi(item)} className="expand-btn" title="Ask AI about this expense">
+              <IconSparkle size={16} />
+            </button>
+          </span>
         </td>
       </tr>
       {isExpanded && (
-        <tr className="border-t border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30">
-          <td colSpan={colSpan} className="px-3 py-3 text-sm">
-            <div className="space-y-2">
+        <tr>
+          <td colSpan={colSpan} style={{ padding: 12, background: "var(--bg-secondary)", borderBottom: "1px solid var(--border-stripe)" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
               <p><strong>Description:</strong> {item.description}</p>
               <p><strong>Time:</strong> {formatTimestampFull(item.occurredAt, locale)}</p>
-              <p>
-                <strong>Category:</strong>{" "}
-                <span className="inline-flex rounded bg-[hsl(var(--muted))] px-1.5 py-0.5 capitalize">{item.category}</span>
-              </p>
+              <p><strong>Category:</strong> <span className="category-badge">{item.category}</span></p>
               <p><strong>Agent:</strong> {item.agentName} ({item.agentId})</p>
-              <button
-                type="button"
-                onClick={() => onAskAi(item)}
-                className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 py-1 text-sm hover:bg-[hsl(var(--muted))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))]"
-              >
-                🔍 Ask AI about this expense
+              <button type="button" onClick={() => onAskAi(item)} className="btn-secondary">
+                <IconSparkle size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />
+                Ask AI about this expense
               </button>
             </div>
           </td>
@@ -551,20 +614,17 @@ const AgentLedgerDashboard: React.FC = () => {
   if (isPending || !parsed.success) {
     return (
       <McpUseProvider autoSize>
-        <div className="w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] p-6 shadow-sm">
-          <div className="mb-6">
-            <div className="h-4 w-48 animate-pulse rounded-md bg-[hsl(var(--muted))]" />
-            <div className="mt-3 h-9 w-80 animate-pulse rounded-md bg-[hsl(var(--muted))]" />
+        <div className="dashboard">
+          <div style={{ marginBottom: 24 }}>
+            <div className="skeleton skeleton-line" style={{ width: 160, height: 20, marginBottom: 12 }} />
+            <div className="skeleton skeleton-line" style={{ width: 240, height: 28 }} />
           </div>
-          <div className="mb-6 grid gap-3 md:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, idx) => (
-              <div
-                key={`kpi-skeleton-${idx}`}
-                className="h-28 animate-pulse rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))]"
-              />
+          <div className="kpi-strip">
+            {Array.from({ length: 4 }).map((_, idx) => (
+              <div key={`kpi-skeleton-${idx}`} className="skeleton skeleton-card" />
             ))}
           </div>
-          <div className="h-56 animate-pulse rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted))]" />
+          <div className="skeleton" style={{ height: 280, borderRadius: 8 }} />
         </div>
       </McpUseProvider>
     );
@@ -583,7 +643,7 @@ const AgentLedgerDashboard: React.FC = () => {
       currency: data.filters.currency,
     })
       .then((result: unknown) => {
-        type ExpensesToolContent = {
+        type ContentShape = {
           expenses?: ExpenseItem[];
           expenseSummary?: ExpenseSummaryLike;
           summary?: ExpenseSummaryLike;
@@ -591,15 +651,14 @@ const AgentLedgerDashboard: React.FC = () => {
           from?: string;
           to?: string;
         };
-        const wrapped = result as { structuredContent?: ExpensesToolContent };
-        const content: ExpensesToolContent =
-          wrapped.structuredContent ?? (result as ExpensesToolContent) ?? {};
+        const r = result as { structuredContent?: ContentShape } | ContentShape;
+        const content: ContentShape | undefined = r && "structuredContent" in r ? r.structuredContent : (r as ContentShape);
         const expenses = content?.expenses ?? data.expenses.filter((e) => e.agentId === agentId);
         const summary = content?.expenseSummary ?? content?.summary ?? {
-          totalExpenseMinor: expenses.reduce((s, e) => s + e.amountMinor, 0),
+          totalExpenseMinor: expenses.reduce((s: number, e: ExpenseItem) => s + e.amountMinor, 0),
           expenseCount: expenses.length,
           byCategory: Object.entries(
-            expenses.reduce<Record<string, number>>((acc, e) => {
+            expenses.reduce<Record<string, number>>((acc: Record<string, number>, e: ExpenseItem) => {
               acc[e.category] = (acc[e.category] ?? 0) + e.amountMinor;
               return acc;
             }, {})
@@ -616,9 +675,9 @@ const AgentLedgerDashboard: React.FC = () => {
       .catch(() => {
         const fallbackExpenses = data.expenses.filter((e) => e.agentId === agentId);
         const byAgentRow = data.expenseSummary.byAgent.find((a) => a.agentId === agentId);
-        const totalMinor = byAgentRow?.totalExpenseMinor ?? fallbackExpenses.reduce((s, e) => s + e.amountMinor, 0);
+        const totalMinor = byAgentRow?.totalExpenseMinor ?? fallbackExpenses.reduce((s: number, e: ExpenseItem) => s + e.amountMinor, 0);
         const byCategory = Object.entries(
-          fallbackExpenses.reduce<Record<string, number>>((acc, e) => {
+          fallbackExpenses.reduce<Record<string, number>>((acc: Record<string, number>, e: ExpenseItem) => {
             acc[e.category] = (acc[e.category] ?? 0) + e.amountMinor;
             return acc;
           }, {})
@@ -682,76 +741,63 @@ const AgentLedgerDashboard: React.FC = () => {
     { id: "byCategory", label: "By category" },
   ];
 
+  const avgPerAgentMinor = data.balances.length > 0
+    ? Math.round(data.expenseSummary.totalExpenseMinor / data.balances.length)
+    : 0;
+  const avgPerAgentStr = formatMoney(avgPerAgentMinor, data.filters.currency, locale);
+
   return (
     <McpUseProvider autoSize>
-      <div className="w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] p-6 shadow-sm">
-        <header className="mb-6">
-          <span className="inline-flex items-center rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-2.5 py-1 text-xs font-medium text-[hsl(var(--muted-foreground))]">
-            Agent Ledger Dashboard
-          </span>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[hsl(var(--foreground))]">
-            Expenses and Balances
-          </h2>
-          <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">
-            Source: <strong>{data.provider}</strong> | View: {data.activeTool} |
-            Scope: {agentScope} | Range: {data.filters.from} to {data.filters.to}
-          </p>
+      <div className="dashboard">
+        <div className="kpi-strip">
+          <MetricCard
+            label="Total spent"
+            value={formatMoney(data.expenseSummary.totalExpenseMinor, data.filters.currency, locale)}
+          />
+          <MetricCard
+            label="Active agents"
+            value={String(data.balances.length)}
+          />
+          <MetricCard
+            label="Transactions"
+            value={String(data.expenseSummary.expenseCount)}
+          />
+          <MetricCard
+            label="Avg / agent"
+            value={avgPerAgentStr}
+          />
+        </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                sendFollowUpMessage(
-                  `Summarize spending for the period ${data.filters.from} to ${data.filters.to}. Which agent or category spent the most?`
-                )
-              }
-              className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-sm font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
-            >
-              Ask AI to summarize
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setRefreshButtonLoading(true);
-                sendFollowUpMessage(
-                  "Refresh the ledger dashboard with getExpenses so I see the latest data."
-                );
-                setTimeout(() => setRefreshButtonLoading(false), 1500);
-              }}
-              disabled={refreshButtonLoading}
-              className="flex items-center gap-2 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-sm font-medium text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))] disabled:opacity-70"
-            >
-              {refreshButtonLoading && <Spinner className="h-4 w-4" />}
-              Ask AI to refresh data
-            </button>
-          </div>
-        </header>
+        <p className="meta-line">
+          Source: <strong>{data.provider}</strong> · View: {data.activeTool} · Scope: {agentScope} · {data.filters.from} to {data.filters.to}
+        </p>
 
-        <section className="mb-6 grid gap-3 md:grid-cols-3">
-          <MetricCard
-            label="Total Spent"
-            value={formatMoney(
-              data.expenseSummary.totalExpenseMinor,
-              data.filters.currency,
-              locale
-            )}
-            caption={`${data.expenseSummary.expenseCount} expense entries`}
-          />
-          <MetricCard
-            label="Total Remaining"
-            value={formatMoney(
-              data.balanceTotals.remainingMinor,
-              data.filters.currency,
-              locale
-            )}
-            caption={`As of ${formatTimestamp(data.asOf, locale)}`}
-          />
-          <MetricCard
-            label="Agents in Scope"
-            value={`${data.balances.length}`}
-            caption={`Currency: ${data.filters.currency}`}
-          />
-        </section>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 12, marginBottom: 24 }}>
+          <button
+            type="button"
+            onClick={() =>
+              sendFollowUpMessage(
+                `Summarize spending for the period ${data.filters.from} to ${data.filters.to}. Which agent or category spent the most?`
+              )
+            }
+            className="btn-secondary"
+          >
+            Ask AI to summarize
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRefreshButtonLoading(true);
+              sendFollowUpMessage("Refresh the ledger dashboard with getExpenses so I see the latest data.");
+              setTimeout(() => setRefreshButtonLoading(false), 1500);
+            }}
+            disabled={refreshButtonLoading}
+            className="btn-secondary"
+          >
+            {refreshButtonLoading ? <Spinner style={{ marginRight: 6, verticalAlign: "middle" }} /> : <IconRefresh size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />}
+            Ask AI to refresh data
+          </button>
+        </div>
 
         {/* Improvement 1: Agent detail view (replaces main content when an agent is selected) */}
         {selectedAgentId != null ? (
@@ -783,20 +829,18 @@ const AgentLedgerDashboard: React.FC = () => {
             formatMoney={formatMoney}
             formatTimestamp={formatTimestamp}
             formatTimestampFull={formatTimestampFull}
+            formatTimestampRelative={formatTimestampRelative}
+            agentColor={agentColor}
           />
         ) : (
           <>
-        <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-[hsl(var(--border))]">
+        <div className="tabs-row">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? "border-[hsl(var(--foreground))] text-[hsl(var(--foreground))]"
-                  : "border-transparent text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))]"
-              }`}
+              className={`tab ${activeTab === tab.id ? "active" : ""}`}
             >
               {tab.label}
             </button>
@@ -805,64 +849,35 @@ const AgentLedgerDashboard: React.FC = () => {
 
         {activeTab === "overview" && (
           <>
-            <section className="mb-6">
-              <h3 className="mb-3 text-xl font-semibold tracking-tight text-[hsl(var(--foreground))]">
-                Agent Balances
-              </h3>
+            <section style={{ marginBottom: 24 }}>
+              <h3 className="section-label">Agent balances</h3>
               {data.balances.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-4 text-sm text-[hsl(var(--muted-foreground))]">
-                  No balances found for the selected filters.
-                </p>
+                <div className="empty-state">No balances found for the selected filters.</div>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
-                  <table className="w-full min-w-[680px] text-sm">
+                <div className="table-wrap">
+                  <table className="table" style={{ minWidth: 560 }}>
                     <thead>
-                      <tr className="bg-[hsl(var(--muted))]">
-                        <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                          Agent
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                          Starting
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                          Spent
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                          Remaining
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                          Budget
-                        </th>
+                      <tr>
+                        <th>Agent</th>
+                        <th>Starting</th>
+                        <th>Spent</th>
+                        <th className="text-right">Remaining</th>
+                        <th>Budget</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.balances.map((item) => (
                         <tr key={item.agentId}>
-                          <td className="border-t border-[hsl(var(--border))] px-3 py-2 text-[hsl(var(--foreground))]">
-                            {item.agentName}
+                          <td>
+                            <div className="agent-cell">
+                              <span className="agent-dot" style={{ backgroundColor: agentColor(item.agentId) }} />
+                              {item.agentName}
+                            </div>
                           </td>
-                          <td className="border-t border-[hsl(var(--border))] px-3 py-2 text-[hsl(var(--foreground))]">
-                            {formatMoney(
-                              item.startingMinor,
-                              data.filters.currency,
-                              locale
-                            )}
-                          </td>
-                          <td className="border-t border-[hsl(var(--border))] px-3 py-2 text-[hsl(var(--foreground))]">
-                            {formatMoney(
-                              item.spentMinor,
-                              data.filters.currency,
-                              locale
-                            )}
-                          </td>
-                          <td className="border-t border-[hsl(var(--border))] px-3 py-2 font-medium text-[hsl(var(--foreground))]">
-                            {formatMoney(
-                              item.remainingMinor,
-                              data.filters.currency,
-                              locale
-                            )}
-                          </td>
-                          <td className="border-t border-[hsl(var(--border))] px-3 py-2">
+                          <td style={{ fontVariantNumeric: "tabular-nums" }}>{formatMoney(item.startingMinor, data.filters.currency, locale)}</td>
+                          <td style={{ fontVariantNumeric: "tabular-nums" }}>{formatMoney(item.spentMinor, data.filters.currency, locale)}</td>
+                          <td className="text-right">{formatMoney(item.remainingMinor, data.filters.currency, locale)}</td>
+                          <td>
                             <BudgetBar
                               spentMinor={item.spentMinor}
                               budgetMinor={undefined}
@@ -885,59 +900,30 @@ const AgentLedgerDashboard: React.FC = () => {
               )}
             </section>
 
-            <section className="mb-6">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-xl font-semibold tracking-tight text-[hsl(var(--foreground))]">
-                  Expenses
-                </h3>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="Search vendor/description..."
-                    value={searchText}
-                    onChange={(e) => {
-                      setSearchText(e.target.value);
-                      setExpensePage(1);
-                    }}
-                    className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))] placeholder:text-[hsl(var(--muted-foreground))]"
-                  />
-                  <select
-                    value={filterCategory}
-                    onChange={(e) => {
-                      setFilterCategory(e.target.value);
-                      setExpensePage(1);
-                    }}
-                    className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))]"
-                  >
+            <section style={{ marginBottom: 24 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+                <h3 className="section-label" style={{ marginBottom: 0 }}>Expenses</h3>
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                  <div className="search-wrap">
+                    <IconSearch size={16} className="search-icon" />
+                    <input
+                      type="text"
+                      placeholder="Search vendor/description..."
+                      value={searchText}
+                      onChange={(e) => { setSearchText(e.target.value); setExpensePage(1); }}
+                      className="form-input"
+                      style={{ width: 200 }}
+                    />
+                  </div>
+                  <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); setExpensePage(1); }} className="form-select" style={{ width: "auto", minWidth: 120, padding: "6px 10px", fontSize: 12 }}>
                     <option value="all">All categories</option>
-                    {categories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
+                    {categories.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
-                  <select
-                    value={filterAgentId}
-                    onChange={(e) => {
-                      setFilterAgentId(e.target.value);
-                      setExpensePage(1);
-                    }}
-                    className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))]"
-                  >
+                  <select value={filterAgentId} onChange={(e) => { setFilterAgentId(e.target.value); setExpensePage(1); }} className="form-select" style={{ width: "auto", minWidth: 120, padding: "6px 10px", fontSize: 12 }}>
                     <option value="all">All agents</option>
-                    {data.balances.map((b) => (
-                      <option key={b.agentId} value={b.agentId}>
-                        {b.agentName}
-                      </option>
-                    ))}
+                    {data.balances.map((b) => <option key={b.agentId} value={b.agentId}>{b.agentName}</option>)}
                   </select>
-                  <select
-                    value={expenseSort}
-                    onChange={(e) =>
-                      setExpenseSort(e.target.value as ExpenseSort)
-                    }
-                    className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))]"
-                  >
+                  <select value={expenseSort} onChange={(e) => setExpenseSort(e.target.value as ExpenseSort)} className="form-select" style={{ width: "auto", minWidth: 120, padding: "6px 10px", fontSize: 12 }}>
                     <option value="dateDesc">Date (newest)</option>
                     <option value="dateAsc">Date (oldest)</option>
                     <option value="amountDesc">Amount (high)</option>
@@ -947,35 +933,26 @@ const AgentLedgerDashboard: React.FC = () => {
                 </div>
               </div>
               {paginatedExpenses.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-4 text-sm text-[hsl(var(--muted-foreground))]">
+                <div className="empty-state">
                   No expenses match the filters.
-                </p>
+                  <div className="empty-state-cta">
+                    <button type="button" onClick={() => setShowTrackForm(true)} className="btn-primary">Track your first expense</button>
+                  </div>
+                </div>
               ) : (
                 <>
-                  <div className="overflow-x-auto rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))]">
-                    <table className="w-full min-w-[860px] text-sm">
+                  <div className="table-wrap">
+                    <table className="table" style={{ minWidth: 860 }}>
                       <thead>
-                        <tr className="bg-[hsl(var(--muted))]">
-                          <th className="w-8 px-1 py-2" aria-label="Expand" />
-                          <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                            Date
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                            Agent
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                            Vendor
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                            Category
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                            Description
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-[hsl(var(--muted-foreground))]">
-                            Amount
-                          </th>
-                          <th className="w-10 px-1 py-2" aria-label="Ask AI" />
+                        <tr>
+                          <th style={{ width: 32 }} aria-label="Expand" />
+                          <th>Date</th>
+                          <th>Agent</th>
+                          <th>Vendor</th>
+                          <th>Category</th>
+                          <th>Description</th>
+                          <th className="text-right">Amount</th>
+                          <th style={{ width: 40 }} aria-label="Ask AI" />
                         </tr>
                       </thead>
                       <tbody>
@@ -988,6 +965,7 @@ const AgentLedgerDashboard: React.FC = () => {
                             formatMoney={formatMoney}
                             formatTimestamp={formatTimestamp}
                             formatTimestampFull={formatTimestampFull}
+                            formatTimestampRelative={formatTimestampRelative}
                             expandedExpenseId={expandedExpenseId}
                             onToggleExpand={(id) => setExpandedExpenseId(id)}
                             onAskAi={(exp) =>
@@ -995,6 +973,7 @@ const AgentLedgerDashboard: React.FC = () => {
                                 `Explain this expense in detail: ${exp.vendor} charged ${formatMoney(exp.amountMinor, data.filters.currency, locale)} to ${exp.agentId} for '${exp.description}' in category '${exp.category}' on ${formatTimestamp(exp.occurredAt, locale)}. Is this expected? How does it compare to typical costs for this service?`
                               )
                             }
+                            agentColor={agentColor}
                             showAgentColumn
                           />
                         ))}
@@ -1002,30 +981,10 @@ const AgentLedgerDashboard: React.FC = () => {
                     </table>
                   </div>
                   {totalExpensePages > 1 && (
-                    <div className="mt-3 flex items-center gap-2 text-sm text-[hsl(var(--muted-foreground))]">
-                      <button
-                        type="button"
-                        onClick={() => setExpensePage((p) => Math.max(1, p - 1))}
-                        disabled={expensePage === 1}
-                        className="rounded border border-[hsl(var(--border))] px-2 py-1 disabled:opacity-50"
-                      >
-                        Previous
-                      </button>
-                      <span>
-                        Page {expensePage} of {totalExpensePages}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpensePage((p) =>
-                            Math.min(totalExpensePages, p + 1)
-                          )
-                        }
-                        disabled={expensePage === totalExpensePages}
-                        className="rounded border border-[hsl(var(--border))] px-2 py-1 disabled:opacity-50"
-                      >
-                        Next
-                      </button>
+                    <div className="pagination">
+                      <button type="button" onClick={() => setExpensePage((p) => Math.max(1, p - 1))} disabled={expensePage === 1} className="btn-ghost">Previous</button>
+                      <span>Page {expensePage} of {totalExpensePages}</span>
+                      <button type="button" onClick={() => setExpensePage((p) => Math.min(totalExpensePages, p + 1))} disabled={expensePage === totalExpensePages} className="btn-ghost">Next</button>
                     </div>
                   )}
                 </>
@@ -1035,18 +994,23 @@ const AgentLedgerDashboard: React.FC = () => {
         )}
 
         {activeTab === "byAgent" && (
-          <section className="mb-6">
-            <h3 className="mb-3 text-xl font-semibold tracking-tight text-[hsl(var(--foreground))]">
-              Spending by agent
-            </h3>
+          <section style={{ marginBottom: 24 }}>
+            <h3 className="section-label">Spending by agent</h3>
             {data.expenseSummary.byAgent.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-4 text-sm text-[hsl(var(--muted-foreground))]">
-                No data.
-              </p>
+              <div className="empty-state">No data.</div>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="agent-cards">
                 {data.expenseSummary.byAgent.map((row) => {
                   const bal = data.balances.find((b) => b.agentId === row.agentId);
+                  const agentExpenses = data.expenses.filter((e) => e.agentId === row.agentId);
+                  const byCat = agentExpenses.reduce((acc, e) => {
+                    acc[e.category] = (acc[e.category] ?? 0) + e.amountMinor;
+                    return acc;
+                  }, {} as Record<string, number>);
+                  const topCategory = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "—";
+                  const txCount = agentExpenses.length;
+                  const pct = bal && bal.startingMinor > 0 ? Math.min(100, (bal.spentMinor / bal.startingMinor) * 100) : 0;
+                  const barClass = pct < 70 ? "ok" : pct < 90 ? "warning" : "danger";
                   return (
                     <article
                       key={row.agentId}
@@ -1059,33 +1023,32 @@ const AgentLedgerDashboard: React.FC = () => {
                           handleOpenAgentDetail(row.agentId);
                         }
                       }}
-                      className="flex cursor-pointer flex-col rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 transition-colors hover:bg-[hsl(var(--muted))] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--foreground))]"
+                      className="agent-card"
                     >
-                      <p className="text-sm font-medium text-[hsl(var(--foreground))]">
-                        {row.agentName}
+                      <div className="agent-card-header">
+                        <div className="agent-card-name">
+                          <span className="agent-dot" style={{ backgroundColor: agentColor(row.agentId) }} />
+                          {row.agentName}
+                        </div>
+                        <span className="agent-card-amount">
+                          {formatMoney(row.totalExpenseMinor, data.filters.currency, locale)}
+                        </span>
+                      </div>
+                      <p className="agent-card-subtitle">
+                        {txCount} transaction{txCount !== 1 ? "s" : ""} · {topCategory}
                       </p>
-                      <p className="mt-1 text-2xl font-semibold text-[hsl(var(--foreground))]">
-                        {formatMoney(
-                          row.totalExpenseMinor,
-                          data.filters.currency,
-                          locale
-                        )}
-                      </p>
-                      {bal && (
-                        <div className="mt-2">
-                          <BudgetBar
-                            spentMinor={bal.spentMinor}
-                            budgetMinor={undefined}
-                            currency={data.filters.currency}
-                            locale={locale}
-                            agentId={bal.agentId}
-                            agentName={bal.agentName}
-                            onAskAiSetBudget={(id, name) =>
-                              sendFollowUpMessage(
-                                `Set a monthly budget for agent ${id} (${name}). Suggest an appropriate amount based on their recent spending pattern.`
-                              )
-                            }
-                          />
+                      {bal && bal.startingMinor > 0 && (
+                        <div className="agent-card-footer">
+                          <div className="budget-bar-track" style={{ flex: 1 }}>
+                            <div className={`budget-bar-fill ${barClass}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="agent-card-arrow"><IconArrowRight size={16} /></span>
+                        </div>
+                      )}
+                      {(!bal || bal.startingMinor <= 0) && (
+                        <div className="agent-card-footer">
+                          <span style={{ flex: 1 }} />
+                          <span className="agent-card-arrow"><IconArrowRight size={16} /></span>
                         </div>
                       )}
                     </article>
@@ -1097,30 +1060,17 @@ const AgentLedgerDashboard: React.FC = () => {
         )}
 
         {activeTab === "byCategory" && (
-          <section className="mb-6">
-            <h3 className="mb-3 text-xl font-semibold tracking-tight text-[hsl(var(--foreground))]">
-              Spending by category
-            </h3>
+          <section style={{ marginBottom: 24 }}>
+            <h3 className="section-label">Spending by category</h3>
             {data.expenseSummary.byCategory.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--muted))] p-4 text-sm text-[hsl(var(--muted-foreground))]">
-                No data.
-              </p>
+              <div className="empty-state">No data.</div>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="agent-cards">
                 {data.expenseSummary.byCategory.map((row) => (
-                  <article
-                    key={row.category}
-                    className="rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4"
-                  >
-                    <p className="text-sm font-medium capitalize text-[hsl(var(--foreground))]">
-                      {row.category}
-                    </p>
-                    <p className="mt-1 text-2xl font-semibold text-[hsl(var(--foreground))]">
-                      {formatMoney(
-                        row.totalExpenseMinor,
-                        data.filters.currency,
-                        locale
-                      )}
+                  <article key={row.category} className="kpi-card" style={{ cursor: "default" }}>
+                    <p className="kpi-card-label">{row.category}</p>
+                    <p className="kpi-card-value">
+                      {formatMoney(row.totalExpenseMinor, data.filters.currency, locale)}
                     </p>
                   </article>
                 ))}
@@ -1129,103 +1079,49 @@ const AgentLedgerDashboard: React.FC = () => {
           </section>
         )}
 
-        <section className="mt-6 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
+        <section style={{ marginTop: 24, paddingTop: 24, borderTop: "1px solid var(--border-stripe)" }}>
           <button
             type="button"
             onClick={() => setShowTrackForm((v) => !v)}
-            className="text-sm font-medium text-[hsl(var(--foreground))] hover:underline"
+            className={`collapse-trigger ${showTrackForm ? "open" : ""}`}
           >
+            <IconChevronDown size={12} className="chevron" />
             {showTrackForm ? "Hide form" : "Track new expense"}
           </button>
-          {trackSuccess && (
-            <p className="mt-2 text-sm text-green-600 dark:text-green-400">
-              Expense recorded. Ask the AI to refresh the dashboard to see it.
-            </p>
-          )}
+          {trackSuccess && <p className="success-msg">Expense recorded. Ask the AI to refresh the dashboard to see it.</p>}
           {showTrackForm && (
-            <form onSubmit={handleTrackExpense} className="mt-4 space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm text-[hsl(var(--muted-foreground))]">
+            <form onSubmit={handleTrackExpense} className="form-section">
+              <div className="form-grid">
+                <label className="form-label">
                   Agent
-                  <select
-                    required
-                    value={trackAgentId}
-                    onChange={(e) => setTrackAgentId(e.target.value)}
-                    className="mt-1 block w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))]"
-                  >
+                  <select required value={trackAgentId} onChange={(e) => setTrackAgentId(e.target.value)} className="form-select">
                     <option value="">Select agent</option>
-                    {data.balances.map((b) => (
-                      <option key={b.agentId} value={b.agentId}>
-                        {b.agentName}
-                      </option>
-                    ))}
+                    {data.balances.map((b) => <option key={b.agentId} value={b.agentId}>{b.agentName}</option>)}
                   </select>
                 </label>
-                <label className="block text-sm text-[hsl(var(--muted-foreground))]">
+                <label className="form-label">
                   Category
-                  <input
-                    type="text"
-                    required
-                    value={trackCategory}
-                    onChange={(e) => setTrackCategory(e.target.value)}
-                    placeholder="e.g. software"
-                    className="mt-1 block w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))]"
-                  />
+                  <input type="text" required value={trackCategory} onChange={(e) => setTrackCategory(e.target.value)} placeholder="e.g. software" className="form-input" />
                 </label>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm text-[hsl(var(--muted-foreground))]">
+                <label className="form-label">
                   Vendor
-                  <input
-                    type="text"
-                    required
-                    value={trackVendor}
-                    onChange={(e) => setTrackVendor(e.target.value)}
-                    placeholder="e.g. OpenAI"
-                    className="mt-1 block w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))]"
-                  />
+                  <input type="text" required value={trackVendor} onChange={(e) => setTrackVendor(e.target.value)} placeholder="e.g. OpenAI" className="form-input" />
                 </label>
-                <label className="block text-sm text-[hsl(var(--muted-foreground))]">
+                <label className="form-label">
                   Amount ({data.filters.currency})
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    step="0.01"
-                    value={trackAmountDollars}
-                    onChange={(e) => setTrackAmountDollars(e.target.value)}
-                    placeholder="0.00"
-                    className="mt-1 block w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))]"
-                  />
+                  <input type="number" required min="0" step="0.01" value={trackAmountDollars} onChange={(e) => setTrackAmountDollars(e.target.value)} placeholder="0.00" className="form-input" />
                 </label>
               </div>
-              <label className="block text-sm text-[hsl(var(--muted-foreground))]">
+              <label className="form-label" style={{ marginTop: 12 }}>
                 Description
-                <input
-                  type="text"
-                  required
-                  value={trackDescription}
-                  onChange={(e) => setTrackDescription(e.target.value)}
-                  placeholder="Short description"
-                  className="mt-1 block w-full rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 text-sm text-[hsl(var(--foreground))]"
-                />
+                <input type="text" required value={trackDescription} onChange={(e) => setTrackDescription(e.target.value)} placeholder="Short description" className="form-input" style={{ marginTop: 4 }} />
               </label>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  disabled={isTracking}
-                  className="flex items-center gap-2 rounded-md bg-[hsl(var(--foreground))] px-3 py-1.5 text-sm font-medium text-[hsl(var(--background))] hover:opacity-90 disabled:opacity-50"
-                >
-                  {isTracking && <Spinner className="h-4 w-4" />}
-                  {isTracking ? "Recording…" : "Record expense"}
+              <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                <button type="submit" disabled={isTracking} className="btn-primary">
+                  {isTracking && <Spinner style={{ marginRight: 6, verticalAlign: "middle" }} />}
+                  {isTracking ? "Recording…" : "Track expense"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowTrackForm(false)}
-                  className="rounded-md border border-[hsl(var(--border))] px-3 py-1.5 text-sm font-medium text-[hsl(var(--foreground))]"
-                >
-                  Cancel
-                </button>
+                <button type="button" onClick={() => setShowTrackForm(false)} className="btn-secondary">Cancel</button>
               </div>
             </form>
           )}
@@ -1237,4 +1133,10 @@ const AgentLedgerDashboard: React.FC = () => {
   );
 };
 
-export default AgentLedgerDashboard;
+export default function WidgetWithBoundary() {
+  return (
+    <WidgetErrorBoundary>
+      <AgentLedgerDashboard />
+    </WidgetErrorBoundary>
+  );
+}
